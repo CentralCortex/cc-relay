@@ -42,7 +42,10 @@
 </div>
 
 <div id="chat">
-  <div id="status">connecting...</div>
+  <div id="status" style="display:flex;align-items:center;justify-content:space-between">
+    <span id="status-text">connecting...</span>
+    <span onclick="clearHistory()" style="cursor:pointer;font-size:11px;opacity:0.4;padding-right:4px">clear</span>
+  </div>
   <div id="messages"></div>
   <div id="input-row">
     <textarea id="input" placeholder="Message" rows="1"></textarea>
@@ -53,6 +56,23 @@
 <script src="https://cdn.socket.io/4.7.4/socket.io.min.js"></script>
 <script>
 let socket, waiting = false;
+const HISTORY_KEY = 'cc-history';
+
+function saveMsg(role, text) {
+  const history = JSON.parse(localStorage.getItem(HISTORY_KEY) || '[]');
+  history.push({ role, text, ts: Date.now() });
+  localStorage.setItem(HISTORY_KEY, JSON.stringify(history));
+}
+
+function loadHistory() {
+  const history = JSON.parse(localStorage.getItem(HISTORY_KEY) || '[]');
+  history.forEach(({ role, text }) => addMsg(role, text, false));
+  if (history.length) {
+    const msgs = document.getElementById('messages');
+    msgs.scrollTop = msgs.scrollHeight;
+    addMsg('system', '— resumed —', false);
+  }
+}
 
 function connect() {
   const url = document.getElementById('relay-url').value.trim().replace(/\/$/, '');
@@ -69,20 +89,29 @@ function _connect(url, secret) {
     document.getElementById('auth').style.display = 'none';
     document.getElementById('chat').style.display = 'flex';
     setStatus('connected');
+    loadHistory();
   });
   socket.on('connect_error', (e) => { setStatus('error: ' + e.message); });
   socket.on('disconnect', () => setStatus('disconnected'));
   socket.on('reply', ({ text }) => {
     removeThinking();
     addMsg('claude', text);
+    saveMsg('claude', text);
     waiting = false;
     document.getElementById('send').disabled = false;
   });
 }
 
-function setStatus(s) { document.getElementById('status').textContent = s; }
+function setStatus(s) { document.getElementById('status-text').textContent = s; }
 
-function addMsg(role, text) {
+function clearHistory() {
+  localStorage.removeItem(HISTORY_KEY);
+  const msgs = document.getElementById('messages');
+  while (msgs.firstChild) msgs.removeChild(msgs.firstChild);
+  addMsg('system', '— history cleared —', false);
+}
+
+function addMsg(role, text, save = true) {
   const el = document.createElement('div');
   el.className = 'msg ' + role;
   el.textContent = text;
@@ -104,22 +133,23 @@ function send() {
   input.value = '';
   input.style.height = 'auto';
   addMsg('user', text);
-  const t = addMsg('claude', 'thinking');
+  saveMsg('user', text);
+  const t = addMsg('claude', 'thinking', false);
   t.classList.add('thinking');
   socket.emit('message', { text });
   waiting = true;
   document.getElementById('send').disabled = true;
 }
 
-// Auto-fill saved values
+// Auto-connect if creds saved
 window.onload = () => {
   const url = localStorage.getItem('relay-url');
   const secret = localStorage.getItem('secret');
   if (url) document.getElementById('relay-url').value = url;
   if (secret) document.getElementById('secret').value = secret;
+  if (url && secret) _connect(url, secret);
 };
 
-// Enter to send (shift+enter = newline)
 document.addEventListener('DOMContentLoaded', () => {
   const input = document.getElementById('input');
   input.addEventListener('keydown', (e) => {
