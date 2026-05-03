@@ -4,7 +4,7 @@ const { Server } = require("socket.io");
 
 const app = express();
 const server = http.createServer(app);
-const io = new Server(server, { cors: { origin: "*" } });
+const io = new Server(server, { cors: { origin: "*" }, maxHttpBufferSize: 20e6 });
 
 const SECRET = process.env.SECRET || "changeme";
 const PORT = process.env.PORT || 3000;
@@ -41,7 +41,8 @@ io.on("connection", (socket) => {
     });
 
   } else {
-    socket.on("message", ({ text }) => {
+    // browser — pass full payload through (text, audio, image all forwarded as-is)
+    socket.on("message", (data) => {
       if (!macMini) return socket.emit("reply", { text: "⚠️ Mac Mini offline" });
       const id = Math.random().toString(36).slice(2);
       const timer = setTimeout(() => {
@@ -49,9 +50,10 @@ io.on("connection", (socket) => {
         socket.emit("reply", { text: "⏱ Timed out" });
       }, 600_000);
       pending.set(id, { socket, timer });
-      macMini.emit("message", { id, text });
+      macMini.emit("message", { id, ...data });
     });
   }
 });
 
+app.use(express.static("public"));
 server.listen(PORT, () => console.log(`Relay running on :${PORT}`));
